@@ -8,13 +8,6 @@ import json
 import time
 import qrcode
 
-
-# Function to handle real-time QR code scanning using the local function
-def real_time_qr_scan():
-    # This function will use the detect_qr_code_continuous function defined in this file
-    qr_data = detect_qr_code_continuous()
-    return qr_data
-
 # Set page configuration
 st.set_page_config(
     page_title="QR Payment System",
@@ -277,53 +270,7 @@ def parse_qr_data(qr_data):
     except Exception as e:
         return None, False, "Error: Could not parse QR code data."
 
-# Sidebar with user information and options
-with st.sidebar:
-    if not st.session_state.user_logged_in:
-        st.markdown('<p class="sub-header">Create Account / Login</p>', unsafe_allow_html=True)
-        
-        # Account creation form
-        with st.form("account_form"):
-            username = st.text_input("Your Name")
-            user_cnic = st.text_input("Your CNIC", placeholder="00000-0000000-0", help="Format must be exactly: 00000-0000000-0")
-            initial_balance = st.number_input("Initial Balance (PKR)", min_value=0.0, value=5000.0, format="%.2f")
-            
-            submitted = st.form_submit_button("Create Account & Login")
-            
-            if submitted:
-                if not username:
-                    st.error("Please enter your name.")
-                elif not validate_cnic(user_cnic):
-                    st.error("CNIC must be in the exact format: 00000-0000000-0")
-                else:
-                    st.session_state.user_logged_in = True
-                    st.session_state.username = username
-                    st.session_state.user_cnic = user_cnic
-                    st.session_state.balance = initial_balance
-                    st.success(f"Welcome, {username}!")
-                    st.rerun()
-    else:
-        st.markdown('<p class="sub-header">User Information</p>', unsafe_allow_html=True)
-        st.markdown(f"**Name:** {st.session_state.username}")
-        st.markdown(f"**CNIC:** {st.session_state.user_cnic}")
-        st.markdown(f'<div class="balance-display">Balance: PKR {st.session_state.balance:.2f}</div>', unsafe_allow_html=True)
-        
-        if st.button("Logout"):
-            # Reset all session state variables
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-    
-    st.markdown("---")
-    st.markdown("### About")
-    st.markdown("""
-    This app allows you to:
-    - Generate QR codes for payments
-    - Scan QR codes to make payments
-    - Track your account balance
-    - View transaction history
-    """)
-
+# Function to detect QR code continuously
 def detect_qr_code_continuous():
     # Initialize the QR code detector
     qr_detector = cv2.QRCodeDetector()
@@ -384,7 +331,7 @@ def detect_qr_code_continuous():
                         rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
                         
                         # Show the final frame with the detected QR code
-                        video_placeholder.image(rgb_frame, channels="RGB", use_column_width=True)
+                        video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
                         status_placeholder.success(f"QR Code detected: {s}")
                         
                         # Break the loop after detecting a QR code
@@ -415,7 +362,7 @@ def detect_qr_code_continuous():
                     rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
                     
                     # Show the final frame with the detected QR code
-                    video_placeholder.image(rgb_frame, channels="RGB", use_column_width=True)
+                    video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
                     status_placeholder.success(f"QR Code detected: {data}")
                     
                     # Break the loop after detecting a QR code
@@ -433,7 +380,7 @@ def detect_qr_code_continuous():
         rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
         
         # Display the frame in Streamlit
-        video_placeholder.image(rgb_frame, channels="RGB", use_column_width=True)
+        video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
         
         # Add a small delay to reduce CPU usage
         time.sleep(0.03)
@@ -442,6 +389,59 @@ def detect_qr_code_continuous():
     cap.release()
     
     return qr_value
+
+# Function to handle real-time QR code scanning using the local function
+def real_time_qr_scan():
+    # This function will use the detect_qr_code_continuous function defined in this file
+    qr_data = detect_qr_code_continuous()
+    return qr_data
+
+# Sidebar with user information and options
+with st.sidebar:
+    if not st.session_state.user_logged_in:
+        st.markdown('<p class="sub-header">Create Account / Login</p>', unsafe_allow_html=True)
+        
+        # Account creation form
+        with st.form("account_form"):
+            username = st.text_input("Your Name")
+            user_cnic = st.text_input("Your CNIC", placeholder="00000-0000000-0", help="Format must be exactly: 00000-0000000-0")
+            initial_balance = st.number_input("Initial Balance (PKR)", min_value=0.0, value=5000.0, format="%.2f")
+            
+            submitted = st.form_submit_button("Create Account & Login")
+            
+            if submitted:
+                if not username:
+                    st.error("Please enter your name.")
+                elif not validate_cnic(user_cnic):
+                    st.error("CNIC must be in the exact format: 00000-0000000-0")
+                else:
+                    st.session_state.user_logged_in = True
+                    st.session_state.username = username
+                    st.session_state.user_cnic = user_cnic
+                    st.session_state.balance = initial_balance
+                    st.success(f"Welcome, {username}!")
+                    st.rerun()
+    else:
+        st.markdown('<p class="sub-header">User Information</p>', unsafe_allow_html=True)
+        st.markdown(f"**Name:** {st.session_state.username}")
+        st.markdown(f"**CNIC:** {st.session_state.user_cnic}")
+        st.markdown(f'<div class="balance-display">Balance: PKR {st.session_state.balance:.2f}</div>', unsafe_allow_html=True)
+        
+        if st.button("Logout"):
+            # Reset all session state variables
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+    
+    st.markdown("---")
+    st.markdown("### About")
+    st.markdown("""
+    This app allows you to:
+    - Generate QR codes for payments
+    - Scan QR codes to make payments
+    - Track your account balance
+    - View transaction history
+    """)
 
 # Run the continuous QR code detection only when explicitly called, not on app startup
 if __name__ == "__main__" and False:  # Disabled automatic execution
@@ -856,10 +856,3 @@ st.markdown(
     "<p style='text-align: center; color: #666;'>© 2025 QR Payment System | Built with Streamlit</p>", 
     unsafe_allow_html=True
 )
-
-
-# Function to handle real-time QR code scanning using the local function
-def real_time_qr_scan():
-    # This function will use the detect_qr_code_continuous function defined in this file
-    qr_data = detect_qr_code_continuous()
-    return qr_data
