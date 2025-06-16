@@ -695,9 +695,9 @@ else:
         st.markdown('</div>', unsafe_allow_html=True)
     
     # Tab 3: Scan & Pay
-   with tab3:
-    st.markdown('<div class="tab-content">', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Scan QR Code to Make Payment</p>', unsafe_allow_html=True)
+    with tab3:
+     st.markdown('<div class="tab-content">', unsafe_allow_html=True)
+     st.markdown('<p class="sub-header">Scan QR Code to Make Payment</p>', unsafe_allow_html=True)
     
     col1, col2 = st.columns([3, 2])
     
