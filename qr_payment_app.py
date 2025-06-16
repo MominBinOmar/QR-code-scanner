@@ -312,7 +312,259 @@ with st.sidebar:
     - Track your account balance
     - View transaction history
     """)
+# Alternative enhanced version with continuous scanning
+def continuous_qr_scan():
+    """
+    Continuous QR code scanning using Streamlit's camera_input with auto-refresh
+    """
+    st.markdown("### Live QR Scanner")
+    
+    # Create a placeholder for the camera
+    camera_placeholder = st.empty()
+    
+    # Auto-refresh checkbox
+    auto_scan = st.checkbox("🔄 Auto-scan (refresh every 3 seconds)", value=False)
+    
+    if auto_scan:
+        # Auto-refresh mechanism
+        if 'last_scan_time' not in st.session_state:
+            st.session_state.last_scan_time = time.time()
+        
+        current_time = time.time()
+        if current_time - st.session_state.last_scan_time > 3:
+            st.session_state.last_scan_time = current_time
+            st.rerun()
+    
+    # Camera input
+    with camera_placeholder.container():
+        camera_photo = st.camera_input(
+            "📱 Point camera at QR code", 
+            key=f"live_camera_{int(time.time()) if auto_scan else 'static'}"
+        )
+        
+        if camera_photo is not None:
+            return camera_photo
+    
+    return None
 
+# Enhanced Tab 3: Scan & Pay (Replace the entire tab3 section)
+with tab3:
+    st.markdown('<div class="tab-content">', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Scan QR Code to Make Payment</p>', unsafe_allow_html=True)
+    
+    # Create tabs within the scan section
+    scan_tab1, scan_tab2 = st.tabs(["📱 Live Camera", "📁 Upload Image"])
+    
+    with scan_tab1:
+        col1, col2 = st.columns([3, 2])
+        
+        with col1:
+            # Live camera scanning
+            camera_photo = continuous_qr_scan()
+            
+            if camera_photo is not None:
+                # Process the captured image
+                image = Image.open(camera_photo)
+                
+                # Show a smaller preview
+                st.image(image, caption="Live Preview", width=300)
+                
+                # Convert to numpy array for OpenCV processing
+                img_array = np.array(image)
+                
+                # Convert RGB to BGR for OpenCV
+                if len(img_array.shape) == 3 and img_array.shape[2] == 3:
+                    img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+                
+                # Try to detect QR code
+                with st.spinner("🔍 Scanning for QR code..."):
+                    display_frame, qr_value = detect_qr_code(img_array)
+                    
+                    if qr_value:
+                        st.success("✅ QR Code detected!")
+                        
+                        # Parse the QR data
+                        parsed_data, is_valid, message = parse_qr_data(qr_value)
+                        
+                        if is_valid:
+                            st.session_state.qr_result = qr_value
+                            st.session_state.parsed_payment_data = parsed_data
+                            st.session_state.scan_state = "detected"
+                        else:
+                            st.error(f"❌ {message}")
+                    else:
+                        st.warning("⚠️ No QR code detected. Try adjusting the angle or lighting.")
+        
+        with col2:
+            # Payment details for live scanning
+            if st.session_state.scan_state == "detected" and st.session_state.parsed_payment_data:
+                payment_data = st.session_state.parsed_payment_data
+                
+                st.markdown(f'''
+                <div class="result-text">
+                    <h4>🎯 Payment Detected</h4>
+                    <p><strong>Recipient:</strong> {payment_data['sender']}</p>
+                    <p><strong>Amount:</strong> PKR {payment_data['amount']:.2f}</p>
+                    <p><strong>Your Balance:</strong> PKR {st.session_state.balance:.2f}</p>
+                </div>
+                ''', unsafe_allow_html=True)
+                
+                # Quick payment buttons
+                if st.session_state.balance >= payment_data['amount']:
+                    if st.button("💰 Pay Now", type="primary", key="quick_pay"):
+                        success, message = process_payment(
+                            payment_data['amount'],
+                            payment_data['sender'],
+                            payment_data['sender_cnic']
+                        )
+                        if success:
+                            st.session_state.scan_state = "confirmed"
+                            st.balloons()  # Celebration effect
+                            st.rerun()
+                else:
+                    st.error("💸 Insufficient funds")
+                
+                if st.button("🚫 Cancel", key="quick_cancel"):
+                    st.session_state.scan_state = "idle"
+                    st.session_state.parsed_payment_data = None
+                    st.rerun()
+            else:
+                st.markdown('''
+                <div class="info-box">
+                    <h4>📱 Live Scanner Active</h4>
+                    <p>Point your camera at a QR code to scan it automatically.</p>
+                    <p><strong>Tips:</strong></p>
+                    <ul>
+                        <li>🔆 Ensure good lighting</li>
+                        <li>📐 Keep QR code straight</li>
+                        <li>📏 Maintain proper distance</li>
+                        <li>✋ Hold steady for best results</li>
+                    </ul>
+                </div>
+                ''', unsafe_allow_html=True)
+    
+    with scan_tab2:
+        col1, col2 = st.columns([3, 2])
+        
+        with col1:
+            st.markdown("### Upload QR Code Image")
+            uploaded_file = st.file_uploader(
+                "Choose a QR code image", 
+                type=['jpg', 'jpeg', 'png', 'bmp', 'tiff'], 
+                key="qr_upload_main"
+            )
+            
+            if uploaded_file is not None:
+                # Process uploaded image
+                image = Image.open(uploaded_file)
+                st.image(image, caption="Uploaded Image", use_container_width=True)
+                
+                # Convert to numpy array
+                img_array = np.array(image)
+                
+                # Convert RGB to BGR for OpenCV
+                if len(img_array.shape) == 3 and img_array.shape[2] == 3:
+                    img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+                
+                # Process button
+                if st.button("🔍 Scan Uploaded Image", type="primary"):
+                    with st.spinner("Processing image..."):
+                        display_frame, qr_value = detect_qr_code(img_array)
+                        
+                        if qr_value:
+                            st.success("✅ QR Code found in image!")
+                            
+                            # Parse the QR data
+                            parsed_data, is_valid, message = parse_qr_data(qr_value)
+                            
+                            if is_valid:
+                                st.session_state.qr_result = qr_value
+                                st.session_state.parsed_payment_data = parsed_data
+                                st.session_state.scan_state = "detected"
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {message}")
+                        else:
+                            st.error("❌ No QR code detected in the uploaded image.")
+        
+        with col2:
+            # Payment details for uploaded image
+            if st.session_state.scan_state == "detected" and st.session_state.parsed_payment_data:
+                payment_data = st.session_state.parsed_payment_data
+                
+                st.markdown(f'''
+                <div class="result-text">
+                    <h4>📋 Payment Details</h4>
+                    <p><strong>Recipient:</strong> {payment_data['sender']}</p>
+                    <p><strong>CNIC:</strong> {payment_data['sender_cnic']}</p>
+                    <p><strong>Amount:</strong> PKR {payment_data['amount']:.2f}</p>
+                    <p><strong>Your Balance:</strong> PKR {st.session_state.balance:.2f}</p>
+                </div>
+                ''', unsafe_allow_html=True)
+                
+                # Payment confirmation
+                if st.session_state.balance >= payment_data['amount']:
+                    if st.button("✅ Confirm Payment", type="primary", key="confirm_upload_payment"):
+                        success, message = process_payment(
+                            payment_data['amount'],
+                            payment_data['sender'],
+                            payment_data['sender_cnic']
+                        )
+                        if success:
+                            st.session_state.scan_state = "confirmed"
+                            st.success("🎉 Payment completed successfully!")
+                            st.rerun()
+                        else:
+                            st.error(message)
+                else:
+                    st.error(f"💸 Insufficient funds. Need PKR {payment_data['amount']:.2f}")
+                
+                if st.button("❌ Cancel Payment", key="cancel_upload_payment"):
+                    st.session_state.scan_state = "idle"
+                    st.session_state.parsed_payment_data = None
+                    st.rerun()
+            else:
+                st.markdown('''
+                <div class="info-box">
+                    <h4>📁 Upload Scanner</h4>
+                    <p>Upload an image containing a QR code to scan it.</p>
+                    <p><strong>Supported formats:</strong></p>
+                    <p>JPG, PNG, BMP, TIFF</p>
+                </div>
+                ''', unsafe_allow_html=True)
+    
+    # Payment success display (shown in both tabs)
+    if st.session_state.scan_state == "confirmed":
+        st.markdown("---")
+        if st.session_state.transaction_history:
+            last_transaction = st.session_state.transaction_history[-1]
+            
+            st.markdown(f'''
+            <div class="success-box">
+                <h4>🎉 Payment Successful!</h4>
+                <p><strong>Amount Paid:</strong> PKR {last_transaction['amount']:.2f}</p>
+                <p><strong>Recipient:</strong> {last_transaction['recipient']}</p>
+                <p><strong>New Balance:</strong> PKR {last_transaction['balance_after']:.2f}</p>
+                <p><strong>Transaction Time:</strong> {last_transaction['date']}</p>
+            </div>
+            ''', unsafe_allow_html=True)
+        
+        col_reset1, col_reset2 = st.columns(2)
+        with col_reset1:
+            if st.button("🔄 Scan Another QR Code", key="scan_another_main"):
+                st.session_state.scan_state = "idle"
+                st.session_state.qr_result = None
+                st.session_state.parsed_payment_data = None
+                st.rerun()
+        
+        with col_reset2:
+            if st.button("📊 View Transactions", key="view_transactions"):
+                st.session_state.scan_state = "idle"
+                st.session_state.qr_result = None
+                st.session_state.parsed_payment_data = None
+                st.rerun()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 # Main content
 if not st.session_state.user_logged_in:
     st.markdown('<div class="info-box"><h3>Please create an account to use the app</h3></div>', unsafe_allow_html=True)
