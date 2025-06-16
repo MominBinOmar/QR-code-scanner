@@ -7,11 +7,11 @@ import re
 import json
 import time
 import qrcode
-from continuous_qr_detector import detect_qr_code_continuous
 
-# Function to handle real-time QR code scanning using the continuous_qr_detector.py
+
+# Function to handle real-time QR code scanning using the local function
 def real_time_qr_scan():
-    # This function will use the detect_qr_code_continuous function from continuous_qr_detector.py
+    # This function will use the detect_qr_code_continuous function defined in this file
     qr_data = detect_qr_code_continuous()
     return qr_data
 
@@ -324,41 +324,134 @@ with st.sidebar:
     - View transaction history
     """)
 
-# Alternative enhanced version with continuous scanning
-def continuous_qr_scan():
-    """
-    Continuous QR code scanning using Streamlit's camera_input with auto-refresh
-    """
-    st.markdown("### Live QR Scanner")
+def detect_qr_code_continuous():
+    # Initialize the QR code detector
+    qr_detector = cv2.QRCodeDetector()
     
-    # Create a placeholder for the camera
-    camera_placeholder = st.empty()
+    # Initialize the camera (0 is usually the default camera)
+    camera_id = 0
+    cap = cv2.VideoCapture(camera_id)
     
-    # Auto-refresh checkbox
-    auto_scan = st.checkbox("🔄 Auto-scan (refresh every 3 seconds)", value=False)
+    # Check if the camera opened successfully
+    if not cap.isOpened():
+        st.error("Error: Could not open camera.")
+        return None
     
-    if auto_scan:
-        # Auto-refresh mechanism
-        if 'last_scan_time' not in st.session_state:
-            st.session_state.last_scan_time = time.time()
+    st.info("Camera opened successfully. Scanning for QR codes...")
+    
+    # Create a placeholder for the video feed
+    video_placeholder = st.empty()
+    
+    # Variable to store the QR code value
+    qr_value = None
+    
+    # Create a status placeholder
+    status_placeholder = st.empty()
+    status_placeholder.info("Scanning for QR codes...")
+    
+    while True:
+        # Read a frame from the camera
+        ret, frame = cap.read()
         
-        current_time = time.time()
-        if current_time - st.session_state.last_scan_time > 3:
-            st.session_state.last_scan_time = current_time
-            st.rerun()
-    
-    # Camera input
-    with camera_placeholder.container():
-        camera_photo = st.camera_input(
-            "📱 Point camera at QR code", 
-            key=f"live_camera_{int(time.time()) if auto_scan else 'static'}"
-        )
+        if not ret:
+            st.error("Error: Failed to capture frame.")
+            break
         
-        if camera_photo is not None:
-            return camera_photo
+        # Create a copy of the frame for display
+        display_frame = frame.copy()
+        
+        # Try to detect and decode QR codes in the frame
+        try:
+            # For OpenCV 4.5.4 and above, use detectAndDecodeMulti
+            ret_qr, decoded_info, points, _ = qr_detector.detectAndDecodeMulti(frame)
+            
+            # If QR codes are detected
+            if ret_qr:
+                for s, p in zip(decoded_info, points):
+                    # If the QR code contains data
+                    if s:
+                        qr_value = s  # Assign the QR code value to the variable
+                        color = (0, 255, 0)  # Green color for successful decode
+                        
+                        # Draw a polygon around the QR code
+                        display_frame = cv2.polylines(display_frame, [p.astype(int)], True, color, 8)
+                        
+                        # Display the decoded text on the frame
+                        display_frame = cv2.putText(display_frame, s, p[0].astype(int), 
+                                          cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                        
+                        # Convert BGR to RGB for Streamlit display
+                        rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+                        
+                        # Show the final frame with the detected QR code
+                        video_placeholder.image(rgb_frame, channels="RGB", use_column_width=True)
+                        status_placeholder.success(f"QR Code detected: {s}")
+                        
+                        # Break the loop after detecting a QR code
+                        break
+                
+                # If we found a valid QR code, break the main loop
+                if qr_value:
+                    break
+                    
+        except Exception as e:
+            # For older versions of OpenCV, use detectAndDecode
+            try:
+                data, bbox, _ = qr_detector.detectAndDecode(frame)
+                
+                # If a QR code is detected and contains data
+                if bbox is not None and data:
+                    qr_value = data  # Assign the QR code value to the variable
+                    
+                    # Draw a polygon around the QR code
+                    bbox = bbox.astype(int)
+                    display_frame = cv2.polylines(display_frame, [bbox], True, (0, 255, 0), 8)
+                    
+                    # Display the decoded text on the frame
+                    display_frame = cv2.putText(display_frame, data, (bbox[0][0], bbox[0][1] - 10),
+                                      cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                    
+                    # Convert BGR to RGB for Streamlit display
+                    rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+                    
+                    # Show the final frame with the detected QR code
+                    video_placeholder.image(rgb_frame, channels="RGB", use_column_width=True)
+                    status_placeholder.success(f"QR Code detected: {data}")
+                    
+                    # Break the loop after detecting a QR code
+                    break
+            except Exception as e:
+                # Just continue if there's an error
+                pass
+        
+        # Add status text to the frame
+        status_text = "QR Code Scanner - Scanning..."
+        cv2.putText(display_frame, status_text, (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+        
+        # Convert BGR to RGB for Streamlit display
+        rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+        
+        # Display the frame in Streamlit
+        video_placeholder.image(rgb_frame, channels="RGB", use_column_width=True)
+        
+        # Add a small delay to reduce CPU usage
+        time.sleep(0.03)
     
-    return None
+    # Release the camera
+    cap.release()
+    
+    return qr_value
 
+# Run the continuous QR code detection only when explicitly called, not on app startup
+if __name__ == "__main__" and False:  # Disabled automatic execution
+    print("Starting continuous QR code detection...")
+    result = detect_qr_code_continuous()
+    
+    if result:
+        print(f"\nLast detected QR Code Value: {result}")
+    else:
+        print("\nNo QR code was detected or the camera was closed before detection.")
 
 # Main content
 if not st.session_state.user_logged_in:
@@ -522,26 +615,30 @@ else:
                     st.markdown("### 📷 Real-time QR Scanner")
                     st.markdown("Point your camera at a QR code")
                     
-                    # Use real_time_qr_scan function for real-time scanning with embedded camera
-                    qr_data = real_time_qr_scan()
-                    
-                    if qr_data:
-                        st.success("✅ QR Code detected!")
-                        # Automatically deactivate camera after detection
-                        st.session_state.camera_active = False
+                    # Only call real_time_qr_scan when camera is active
+                    try:
+                        qr_data = real_time_qr_scan()
                         
-                        # Parse the QR data
-                        try:
-                            payment_data = json.loads(qr_data)
-                            if 'type' in payment_data and payment_data['type'] == 'payment':
-                                st.session_state.qr_result = qr_data
-                                st.session_state.parsed_payment_data = payment_data
-                                st.session_state.scan_state = "detected"
-                                st.rerun()
-                            else:
-                                st.error("❌ Invalid QR code: Not a payment request.")
-                        except Exception as e:
-                            st.error(f"❌ Error: Could not parse QR code data. {str(e)}")
+                        if qr_data:
+                            st.success("✅ QR Code detected!")
+                            # Automatically deactivate camera after detection
+                            st.session_state.camera_active = False
+                            
+                            # Parse the QR data
+                            try:
+                                payment_data = json.loads(qr_data)
+                                if 'type' in payment_data and payment_data['type'] == 'payment':
+                                    st.session_state.qr_result = qr_data
+                                    st.session_state.parsed_payment_data = payment_data
+                                    st.session_state.scan_state = "detected"
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Invalid QR code: Not a payment request.")
+                            except Exception as e:
+                                st.error(f"❌ Error: Could not parse QR code data. {str(e)}")
+                    except Exception as e:
+                        st.error(f"❌ Error with camera: {str(e)}")
+                        st.session_state.camera_active = False
                 else:
                     st.markdown('''
                     <div class="info-box">
@@ -549,65 +646,66 @@ else:
                         <p>Click the "Start Camera" button to begin real-time scanning.</p>
                     </div>
                     ''', unsafe_allow_html=True)
+            
+            with col2:
+                # Payment details for live scanning
+                if st.session_state.scan_state == "detected" and st.session_state.parsed_payment_data:
+                    payment_data = st.session_state.parsed_payment_data
+                    
+                    st.markdown(f'''
+                    <div class="result-text">
+                        <h4>🎯 Payment Detected</h4>
+                        <p><strong>Recipient:</strong> {payment_data['sender']}</p>
+                        <p><strong>Amount:</strong> PKR {payment_data['amount']:.2f}</p>
+                        <p><strong>Your Balance:</strong> PKR {st.session_state.balance:.2f}</p>
+                    </div>
+                    ''', unsafe_allow_html=True)
+                    
+                    # Quick payment buttons
+                    if st.session_state.balance >= payment_data['amount']:
+                        if st.button("💰 Pay Now", type="primary", key="quick_pay"):
+                            success, message = process_payment(
+                                payment_data['amount'],
+                                payment_data['sender'],
+                                payment_data['sender_cnic']
+                            )
+                            if success:
+                                st.session_state.scan_state = "confirmed"
+                                st.balloons()  # Celebration effect
+                                st.rerun()
+                    else:
+                        st.error("💸 Insufficient funds")
+                    
+                    if st.button("🚫 Cancel", key="quick_cancel"):
+                        st.session_state.scan_state = "idle"
+                        st.session_state.parsed_payment_data = None
+                        st.rerun()
+                elif st.session_state.camera_active:
+                    st.markdown('''
+                    <div class="info-box">
+                        <h4>📱 Live Scanner Active</h4>
+                        <p>Point your camera at a QR code to scan it automatically.</p>
+                        <p><strong>Tips:</strong></p>
+                        <ul>
+                            <li>🔆 Ensure good lighting</li>
+                            <li>📐 Keep QR code straight</li>
+                            <li>📏 Maintain proper distance</li>
+                            <li>✋ Hold steady for best results</li>
+                        </ul>
+                    </div>
+                    ''', unsafe_allow_html=True)
         
-        with col2:
-            # Payment details for live scanning
-            if st.session_state.scan_state == "detected" and st.session_state.parsed_payment_data:
-                payment_data = st.session_state.parsed_payment_data
-                
-                st.markdown(f'''
-                <div class="result-text">
-                    <h4>🎯 Payment Detected</h4>
-                    <p><strong>Recipient:</strong> {payment_data['sender']}</p>
-                    <p><strong>Amount:</strong> PKR {payment_data['amount']:.2f}</p>
-                    <p><strong>Your Balance:</strong> PKR {st.session_state.balance:.2f}</p>
-                </div>
-                ''', unsafe_allow_html=True)
-                
-                # Quick payment buttons
-                if st.session_state.balance >= payment_data['amount']:
-                    if st.button("💰 Pay Now", type="primary", key="quick_pay"):
-                        success, message = process_payment(
-                            payment_data['amount'],
-                            payment_data['sender'],
-                            payment_data['sender_cnic']
-                        )
-                        if success:
-                            st.session_state.scan_state = "confirmed"
-                            st.balloons()  # Celebration effect
-                            st.rerun()
-                else:
-                    st.error("💸 Insufficient funds")
-                
-                if st.button("🚫 Cancel", key="quick_cancel"):
-                    st.session_state.scan_state = "idle"
-                    st.session_state.parsed_payment_data = None
-                    st.rerun()
-            elif st.session_state.camera_active:
-                st.markdown('''
-                <div class="info-box">
-                    <h4>📱 Live Scanner Active</h4>
-                    <p>Point your camera at a QR code to scan it automatically.</p>
-                    <p><strong>Tips:</strong></p>
-                    <ul>
-                        <li>🔆 Ensure good lighting</li>
-                        <li>📐 Keep QR code straight</li>
-                        <li>📏 Maintain proper distance</li>
-                        <li>✋ Hold steady for best results</li>
-                    </ul>
-                </div>
-                ''', unsafe_allow_html=True)
-    
-    with scan_tab2:
-        col1, col2 = st.columns([3, 2])
-        
-        with col1:
-            st.markdown("### Upload QR Code Image")
-            uploaded_file = st.file_uploader(
-                "Choose a QR code image", 
-                type=['jpg', 'jpeg', 'png', 'bmp', 'tiff'], 
-                key="qr_upload_main"
-            )
+        # Upload Image Tab
+        with scan_tab2:
+            col1, col2 = st.columns([3, 2])
+            
+            with col1:
+                st.markdown("### Upload QR Code Image")
+                uploaded_file = st.file_uploader(
+                    "Choose a QR code image", 
+                    type=['jpg', 'jpeg', 'png', 'bmp', 'tiff'], 
+                    key="qr_upload_main"
+                )
             
             if uploaded_file is not None:
                 # Process uploaded image
@@ -760,8 +858,8 @@ st.markdown(
 )
 
 
-# Function to handle real-time QR code scanning using the continuous_qr_detector.py
+# Function to handle real-time QR code scanning using the local function
 def real_time_qr_scan():
-    # This function will use the detect_qr_code_continuous function from continuous_qr_detector.py
+    # This function will use the detect_qr_code_continuous function defined in this file
     qr_data = detect_qr_code_continuous()
     return qr_data
