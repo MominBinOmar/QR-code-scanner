@@ -157,6 +157,7 @@ def validate_cnic(cnic):
     return bool(re.match(pattern, cnic))
 
 # Function to generate QR code
+# Function to generate QR code (simplified version)
 def generate_qr_code(data):
     # Convert data to JSON string
     json_data = json.dumps(data)
@@ -165,8 +166,8 @@ def generate_qr_code(data):
     qr = qrcode.QRCode(
         version=1,
         error_correction=qrcode.constants.ERROR_CORRECT_H,
-        box_size=5,
-        border=2,
+        box_size=10,
+        border=4,
     )
     
     # Add data to QR code
@@ -176,24 +177,11 @@ def generate_qr_code(data):
     # Create an image from the QR Code
     img = qr.make_image(fill_color="black", back_color="white")
     
-    # Add a title to the QR code image
-    # Create a new image with space for the title
-    title = f"Payment: PKR {data['amount']:.2f}" if 'amount' in data else f"User: {data['name']}"
-    title_font = ImageFont.load_default()
+    # Convert to RGB if not already
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
     
-    # Calculate the size needed for the title
-    img_width, img_height = img.size
-    title_height = 30  # Height for the title area
-    
-    # Create a new image with space for the title
-    new_img = Image.new('RGB', (img_width, img_height + title_height), color='white')
-    new_img.paste(img, (0, title_height))
-    
-    # Add the title
-    draw = ImageDraw.Draw(new_img)
-    draw.text((10, 10), title, fill='black', font=title_font)
-    
-    return new_img
+    return img
 
 # Function to detect QR codes
 def detect_qr_code(frame):
