@@ -1,1 +1,0 @@
-web: python qr_payment_desktop.py
