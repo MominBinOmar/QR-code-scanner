@@ -93,6 +93,10 @@ class QRPaymentApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
     
     def setup_sidebar(self):
+        # Clear all existing widgets in the sidebar frame
+        for widget in self.sidebar_frame.winfo_children():
+            widget.destroy()
+            
         # Create a frame for login/account info
         self.sidebar_top_frame = ttk.Frame(self.sidebar_frame)
         self.sidebar_top_frame.pack(fill=tk.X, pady=10)
