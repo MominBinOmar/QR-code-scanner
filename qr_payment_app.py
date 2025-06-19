@@ -1,313 +1,892 @@
-import streamlit as st
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageTk
 import io
 import re
 import json
 import time
 import qrcode
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+from threading import Thread
 
-# Set page configuration
-st.set_page_config(
-    page_title="QR Payment System",
-    page_icon="💰",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Custom CSS for better UI
-st.markdown("""
-<style>
-.main-header {
-    font-size: 2.5rem;
-    color: #3F51B5;
-    text-align: center;
-    margin-bottom: 1rem;
-    font-weight: bold;
-}
-.sub-header {
-    font-size: 1.5rem;
-    color: #303F9F;
-    margin-bottom: 1rem;
-}
-.info-box {
-    background-color: #E8EAF6;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    margin: 1rem 0;
-    border-left: 5px solid #3F51B5;
-    color: #000000;
-}
-.success-box {
-    background-color: #E8F5E9;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    margin: 1rem 0;
-    border-left: 5px solid #4CAF50;
-    color: #000000;
-}
-.error-box {
-    background-color: #FFEBEE;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    margin: 1rem 0;
-    border-left: 5px solid #F44336;
-    color: #000000;
-}
-.warning-box {
-    background-color: #FFF8E1;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    margin: 1rem 0;
-    border-left: 5px solid #FFC107;
-    color: #000000;
-}
-.qr-container {
-    display: flex;
-    justify-content: center;
-    margin: 2rem 0;
-}
-.result-text {
-    font-size: 1.2rem;
-    background-color: #f0f2f6;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    margin: 1rem 0;
-    border-left: 5px solid #4CAF50;
-    color: #000000;
-}
-.status-text {
-    font-size: 1rem;
-    color: #FF5722;
-}
-.success-text {
-    font-size: 1.2rem;
-    color: #4CAF50;
-    font-weight: bold;
-}
-.centered-image {
-    display: flex;
-    justify-content: center;
-}
-.balance-display {
-    font-size: 1.5rem;
-    font-weight: bold;
-    color: #3F51B5;
-    text-align: center;
-    padding: 1rem;
-    background-color: #E8EAF6;
-    border-radius: 0.5rem;
-    margin: 1rem 0;
-}
-.tab-content {
-    padding: 1rem;
-    border: 1px solid #ddd;
-    border-radius: 0.5rem;
-    margin-top: 1rem;
-}
-.transaction-details {
-    background-color: #E3F2FD;
-    padding: 1rem;
-    border-radius: 0.5rem;
-    margin: 1rem 0;
-    border-left: 5px solid #2196F3;
-    color: #000000;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# App title and description
-st.markdown('<p class="main-header">QR Payment System</p>', unsafe_allow_html=True)
-
-# Initialize session state variables if they don't exist
-if 'user_logged_in' not in st.session_state:
-    st.session_state.user_logged_in = False
-if 'username' not in st.session_state:
-    st.session_state.username = ""
-if 'user_cnic' not in st.session_state:
-    st.session_state.user_cnic = ""
-if 'balance' not in st.session_state:
-    st.session_state.balance = 0.0
-if 'qr_result' not in st.session_state:
-    st.session_state.qr_result = None
-if 'scanning' not in st.session_state:
-    st.session_state.scanning = False
-if 'payment_confirmed' not in st.session_state:
-    st.session_state.payment_confirmed = False
-if 'payment_amount' not in st.session_state:
-    st.session_state.payment_amount = 0.0
-if 'payment_recipient' not in st.session_state:
-    st.session_state.payment_recipient = ""
-if 'payment_cnic' not in st.session_state:
-    st.session_state.payment_cnic = ""
-if 'transaction_history' not in st.session_state:
-    st.session_state.transaction_history = []
-if 'show_my_qr' not in st.session_state:
-    st.session_state.show_my_qr = False
-if 'scan_state' not in st.session_state:
-    st.session_state.scan_state = "idle"  # idle, scanning, detected, confirmed
-if 'parsed_payment_data' not in st.session_state:
-    st.session_state.parsed_payment_data = None
-if 'live_scanning_active' not in st.session_state:
-    st.session_state.live_scanning_active = False
-if 'camera_started' not in st.session_state:
-    st.session_state.camera_started = False # To manage camera resource
-
-# Function to validate CNIC format
-def validate_cnic(cnic):
-    # Pattern for CNIC: 00000-0000000-0 (exactly this format)
-    pattern = r'^\d{5}-\d{7}-\d{1}$'
-    return bool(re.match(pattern, cnic))
-
-# Function to generate QR code
-# Function to generate QR code (simplified version)
-def generate_qr_code(data, box_size=10):
-    # Convert data to JSON string
-    json_data = json.dumps(data)
-    
-    # Create QR code instance
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_H,
-        box_size=box_size,  # Adjustable box size parameter
-        border=4,
-    )
-    
-    # Add data to QR code
-    qr.add_data(json_data)
-    qr.make(fit=True)
-    
-    # Create an image from the QR Code
-    img = qr.make_image(fill_color="black", back_color="white")
-    
-    # Convert to RGB if not already
-    if img.mode != 'RGB':
-        img = img.convert('RGB')
-    
-    return img
-
-# Function to detect QR codes
-def detect_qr_code(frame):
-    # Initialize the QR code detector
-    qr_detector = cv2.QRCodeDetector()
-    
-    # Create a copy of the frame for display
-    display_frame = frame.copy()
-    qr_value = None
-    
-    try:
-        # For OpenCV 4.5.4 and above, use detectAndDecodeMulti
-        ret_qr, decoded_info, points, _ = qr_detector.detectAndDecodeMulti(frame)
+class QRPaymentApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("QR Payment System")
+        self.root.geometry("1000x700")
+        self.root.minsize(800, 600)
         
-        # If QR codes are detected
-        if ret_qr:
-            for s, p in zip(decoded_info, points):
-                # If the QR code contains data
-                if s:
-                    qr_value = s  # Assign the QR code value to the variable
-                    color = (0, 255, 0)  # Green color for successful decode
-                    
-                    # Draw a polygon around the QR code
-                    display_frame = cv2.polylines(display_frame, [p.astype(int)], True, color, 8)
-                    
-                    # Display the decoded text on the frame
-                    display_frame = cv2.putText(display_frame, "QR Code Detected", p[0].astype(int), 
-                                      cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-                    break
-    except Exception as e:
-        # For older versions of OpenCV, use detectAndDecode
+        # Set app icon if available
         try:
-            data, bbox, _ = qr_detector.detectAndDecode(frame)
-            
-            # If a QR code is detected and contains data
-            if bbox is not None and data:
-                qr_value = data  # Assign the QR code value to the variable
-                
-                # Draw a polygon around the QR code
-                bbox = bbox.astype(int)
-                display_frame = cv2.polylines(display_frame, [bbox], True, (0, 255, 0), 8)
-                
-                # Display the decoded text on the frame
-                display_frame = cv2.putText(display_frame, "QR Code Detected", (bbox[0][0], bbox[0][1] - 10), 
-                                  cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-        except Exception as e:
-            # Just continue if there's an error
+            self.root.iconbitmap("app_icon.ico")
+        except:
             pass
-    
-    return display_frame, qr_value
-
-# Function to process payment
-def process_payment(amount, recipient, cnic):
-    if st.session_state.balance >= amount:
-        # Update user balance
-        st.session_state.balance -= amount
         
-        # Record the transaction
-        transaction = {
-            "date": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "type": "payment",
-            "amount": amount,
-            "recipient": recipient,
-            "recipient_cnic": cnic,
-            "balance_after": st.session_state.balance
+        # Initialize user data
+        self.user_logged_in = False
+        self.username = ""
+        self.user_cnic = ""
+        self.balance = 0.0
+        self.qr_result = None
+        self.scanning = False
+        self.payment_confirmed = False
+        self.payment_amount = 0.0
+        self.payment_recipient = ""
+        self.payment_cnic = ""
+        self.transaction_history = []
+        self.show_my_qr = False
+        self.scan_state = "idle"  # idle, scanning, detected, confirmed
+        self.parsed_payment_data = None
+        self.live_scanning_active = False
+        self.camera_started = False
+        
+        # Camera variables
+        self.cap = None
+        self.camera_thread = None
+        self.camera_active = False
+        
+        # Create main frame
+        self.main_frame = ttk.Frame(self.root)
+        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Create sidebar frame and main content frame
+        self.sidebar_frame = ttk.Frame(self.main_frame, width=250)
+        self.content_frame = ttk.Frame(self.main_frame)
+        
+        self.sidebar_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+        self.content_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        
+        # Create header
+        self.header_label = ttk.Label(self.content_frame, text="QR Payment System", font=("Arial", 24, "bold"))
+        self.header_label.pack(pady=(0, 20))
+        
+        # Create notebook (tabs)
+        self.notebook = ttk.Notebook(self.content_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Create tabs
+        self.tab1 = ttk.Frame(self.notebook)  # My QR Code
+        self.tab2 = ttk.Frame(self.notebook)  # Generate Payment QR
+        self.tab3 = ttk.Frame(self.notebook)  # Scan & Pay
+        self.tab4 = ttk.Frame(self.notebook)  # Transaction History
+        
+        self.notebook.add(self.tab1, text="My QR Code")
+        self.notebook.add(self.tab2, text="Generate Payment QR")
+        self.notebook.add(self.tab3, text="Scan & Pay")
+        self.notebook.add(self.tab4, text="Transaction History")
+        
+        # Setup sidebar
+        self.setup_sidebar()
+        
+        # Setup tab content
+        self.setup_my_qr_tab()
+        self.setup_generate_qr_tab()
+        self.setup_scan_pay_tab()
+        self.setup_transaction_history_tab()
+        
+        # Create footer
+        self.footer_label = ttk.Label(self.root, text="© 2025 QR Payment System")
+        self.footer_label.pack(side=tk.BOTTOM, pady=10)
+        
+        # Bind window close event
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+    
+    def setup_sidebar(self):
+        # Create a frame for login/account info
+        self.sidebar_top_frame = ttk.Frame(self.sidebar_frame)
+        self.sidebar_top_frame.pack(fill=tk.X, pady=10)
+        
+        if not self.user_logged_in:
+            # Login form
+            ttk.Label(self.sidebar_top_frame, text="Create Account / Login", font=("Arial", 12, "bold")).pack(pady=5)
+            
+            ttk.Label(self.sidebar_top_frame, text="Your Name:").pack(anchor="w", pady=(10, 0))
+            self.username_entry = ttk.Entry(self.sidebar_top_frame, width=30)
+            self.username_entry.pack(fill=tk.X, pady=(0, 10))
+            
+            ttk.Label(self.sidebar_top_frame, text="Your CNIC (00000-0000000-0):").pack(anchor="w", pady=(0, 0))
+            self.cnic_entry = ttk.Entry(self.sidebar_top_frame, width=30)
+            self.cnic_entry.pack(fill=tk.X, pady=(0, 10))
+            
+            ttk.Label(self.sidebar_top_frame, text="Initial Balance (PKR):").pack(anchor="w", pady=(0, 0))
+            self.balance_entry = ttk.Entry(self.sidebar_top_frame, width=30)
+            self.balance_entry.insert(0, "5000.00")
+            self.balance_entry.pack(fill=tk.X, pady=(0, 10))
+            
+            self.login_button = ttk.Button(self.sidebar_top_frame, text="Create Account & Login", command=self.login)
+            self.login_button.pack(fill=tk.X, pady=10)
+            
+            self.login_error_label = ttk.Label(self.sidebar_top_frame, text="", foreground="red")
+            self.login_error_label.pack(fill=tk.X, pady=(0, 10))
+        else:
+            # User info display
+            ttk.Label(self.sidebar_top_frame, text="User Information", font=("Arial", 12, "bold")).pack(pady=5)
+            
+            ttk.Label(self.sidebar_top_frame, text=f"Name: {self.username}").pack(anchor="w", pady=2)
+            ttk.Label(self.sidebar_top_frame, text=f"CNIC: {self.user_cnic}").pack(anchor="w", pady=2)
+            
+            # Balance display with custom style
+            balance_frame = ttk.Frame(self.sidebar_top_frame, relief=tk.GROOVE, borderwidth=2)
+            balance_frame.pack(fill=tk.X, pady=10)
+            ttk.Label(balance_frame, text=f"Balance: PKR {self.balance:.2f}", 
+                      font=("Arial", 12, "bold")).pack(pady=10)
+            
+            self.logout_button = ttk.Button(self.sidebar_top_frame, text="Logout", command=self.logout)
+            self.logout_button.pack(fill=tk.X, pady=10)
+        
+        # About section
+        ttk.Separator(self.sidebar_frame).pack(fill=tk.X, pady=10)
+        ttk.Label(self.sidebar_frame, text="About", font=("Arial", 12, "bold")).pack(anchor="w", pady=5)
+        
+        about_text = """This app allows you to:
+- Generate QR codes for payments
+- Scan QR codes to make payments
+- Track your account balance
+- View transaction history"""
+        
+        ttk.Label(self.sidebar_frame, text=about_text, wraplength=230, justify="left").pack(anchor="w", pady=5)
+    
+    def setup_my_qr_tab(self):
+        # Create a frame for the tab content
+        content_frame = ttk.Frame(self.tab1, padding=10)
+        content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(content_frame, text="Your Personal QR Code", font=("Arial", 14, "bold")).pack(pady=(0, 10))
+        
+        # Button to show QR code
+        self.show_qr_button = ttk.Button(content_frame, text="Show My QR Code", command=self.show_my_qr_code)
+        self.show_qr_button.pack(pady=10)
+        
+        # Frame for QR code display
+        self.qr_display_frame = ttk.Frame(content_frame)
+        self.qr_display_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        # Initially show instructions
+        self.qr_instructions_label = ttk.Label(self.qr_display_frame, 
+                                            text="Click the 'Show My QR Code' button to generate a QR code containing your account information."
+                                            "\nThis QR code can be scanned by others to view your account details.",
+                                            wraplength=500, justify="center")
+        self.qr_instructions_label.pack(pady=50)
+    
+    def setup_generate_qr_tab(self):
+        # Create a frame for the tab content
+        content_frame = ttk.Frame(self.tab2, padding=10)
+        content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(content_frame, text="Create Payment QR Code", font=("Arial", 14, "bold")).pack(pady=(0, 10))
+        
+        # Create two columns
+        left_frame = ttk.Frame(content_frame)
+        right_frame = ttk.Frame(content_frame)
+        
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
+        
+        # Left frame - Payment form
+        form_frame = ttk.LabelFrame(left_frame, text="Payment Information")
+        form_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        ttk.Label(form_frame, text=f"Sender: {self.username} (You)").pack(anchor="w", pady=(10, 5))
+        
+        ttk.Label(form_frame, text="Amount (PKR):").pack(anchor="w", pady=(10, 0))
+        self.payment_amount_entry = ttk.Entry(form_frame)
+        self.payment_amount_entry.insert(0, "100.00")
+        self.payment_amount_entry.pack(fill=tk.X, padx=10, pady=(0, 10))
+        
+        self.generate_payment_qr_button = ttk.Button(form_frame, text="Generate Payment QR Code", 
+                                                  command=self.generate_payment_qr)
+        self.generate_payment_qr_button.pack(fill=tk.X, padx=10, pady=10)
+        
+        # Right frame - QR display
+        qr_frame = ttk.LabelFrame(right_frame, text="Generated QR Code")
+        qr_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        self.payment_qr_display_frame = ttk.Frame(qr_frame)
+        self.payment_qr_display_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Initially show instructions
+        self.payment_qr_instructions = ttk.Label(self.payment_qr_display_frame, 
+                                              text="Enter the amount and click 'Generate Payment QR Code' to create a QR code for payment."
+                                              "\nThe generated QR code can be scanned by another user to make a payment to you.",
+                                              wraplength=300, justify="center")
+        self.payment_qr_instructions.pack(pady=50)
+    
+    def setup_scan_pay_tab(self):
+        # Create a frame for the tab content
+        content_frame = ttk.Frame(self.tab3, padding=10)
+        content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(content_frame, text="Scan & Pay", font=("Arial", 14, "bold")).pack(pady=(0, 10))
+        
+        # Create notebook for Live Camera and Upload Image tabs
+        scan_notebook = ttk.Notebook(content_frame)
+        scan_notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Create tabs
+        live_camera_tab = ttk.Frame(scan_notebook)
+        upload_image_tab = ttk.Frame(scan_notebook)
+        
+        scan_notebook.add(live_camera_tab, text="Live Camera")
+        scan_notebook.add(upload_image_tab, text="Upload Image")
+        
+        # Live Camera Tab
+        live_left_frame = ttk.Frame(live_camera_tab)
+        live_right_frame = ttk.Frame(live_camera_tab)
+        
+        live_left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        live_right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
+        
+        # Camera controls
+        camera_control_frame = ttk.Frame(live_left_frame)
+        camera_control_frame.pack(fill=tk.X, pady=10)
+        
+        self.start_camera_button = ttk.Button(camera_control_frame, text="🎥 Start Camera", 
+                                           command=self.start_camera)
+        self.start_camera_button.pack(side=tk.LEFT, padx=5)
+        
+        self.stop_camera_button = ttk.Button(camera_control_frame, text="⏹️ Stop Camera", 
+                                          command=self.stop_camera, state=tk.DISABLED)
+        self.stop_camera_button.pack(side=tk.LEFT, padx=5)
+        
+        # Camera feed frame
+        self.camera_frame = ttk.LabelFrame(live_left_frame, text="Camera Feed")
+        self.camera_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        self.video_label = ttk.Label(self.camera_frame)
+        self.video_label.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Status label
+        self.camera_status_label = ttk.Label(live_left_frame, text="Camera Inactive", foreground="blue")
+        self.camera_status_label.pack(pady=5)
+        
+        # Payment details frame (right side)
+        self.live_payment_frame = ttk.LabelFrame(live_right_frame, text="Payment Details")
+        self.live_payment_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        self.live_payment_details_frame = ttk.Frame(self.live_payment_frame)
+        self.live_payment_details_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Initially show instructions
+        self.live_payment_instructions = ttk.Label(self.live_payment_details_frame, 
+                                                text="Start the camera and point it at a QR code to scan.",
+                                                wraplength=300, justify="center")
+        self.live_payment_instructions.pack(pady=50)
+        
+        # Upload Image Tab
+        upload_left_frame = ttk.Frame(upload_image_tab)
+        upload_right_frame = ttk.Frame(upload_image_tab)
+        
+        upload_left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        upload_right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
+        
+        # Upload controls
+        ttk.Label(upload_left_frame, text="Upload QR Code Image", font=("Arial", 12, "bold")).pack(pady=(0, 10))
+        
+        self.upload_button = ttk.Button(upload_left_frame, text="Choose Image File", command=self.upload_image)
+        self.upload_button.pack(pady=10)
+        
+        # Image display frame
+        self.upload_image_frame = ttk.LabelFrame(upload_left_frame, text="Uploaded Image")
+        self.upload_image_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        self.uploaded_image_label = ttk.Label(self.upload_image_frame)
+        self.uploaded_image_label.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        self.scan_uploaded_button = ttk.Button(upload_left_frame, text="🔍 Scan Uploaded Image", 
+                                             command=self.scan_uploaded_image, state=tk.DISABLED)
+        self.scan_uploaded_button.pack(pady=10)
+        
+        # Payment details frame (right side)
+        self.upload_payment_frame = ttk.LabelFrame(upload_right_frame, text="Payment Details")
+        self.upload_payment_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        self.upload_payment_details_frame = ttk.Frame(self.upload_payment_frame)
+        self.upload_payment_details_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Initially show instructions
+        self.upload_payment_instructions = ttk.Label(self.upload_payment_details_frame, 
+                                                  text="Upload an image containing a QR code and click 'Scan Uploaded Image'.",
+                                                  wraplength=300, justify="center")
+        self.upload_payment_instructions.pack(pady=50)
+        
+        # Payment success frame (hidden initially)
+        self.payment_success_frame = ttk.Frame(content_frame)
+        # Will be packed when payment is successful
+    
+    def setup_transaction_history_tab(self):
+        # Create a frame for the tab content
+        content_frame = ttk.Frame(self.tab4, padding=10)
+        content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(content_frame, text="Transaction History", font=("Arial", 14, "bold")).pack(pady=(0, 10))
+        
+        # Balance display
+        self.transaction_balance_label = ttk.Label(content_frame, 
+                                                text=f"Current Balance: PKR {self.balance:.2f}",
+                                                font=("Arial", 12, "bold"))
+        self.transaction_balance_label.pack(pady=10)
+        
+        # Scrollable frame for transactions
+        self.transaction_canvas = tk.Canvas(content_frame)
+        scrollbar = ttk.Scrollbar(content_frame, orient="vertical", command=self.transaction_canvas.yview)
+        self.scrollable_transaction_frame = ttk.Frame(self.transaction_canvas)
+        
+        self.scrollable_transaction_frame.bind(
+            "<Configure>",
+            lambda e: self.transaction_canvas.configure(scrollregion=self.transaction_canvas.bbox("all"))
+        )
+        
+        self.transaction_canvas.create_window((0, 0), window=self.scrollable_transaction_frame, anchor="nw")
+        self.transaction_canvas.configure(yscrollcommand=scrollbar.set)
+        
+        self.transaction_canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Initially show no transactions message
+        self.no_transactions_label = ttk.Label(self.scrollable_transaction_frame, 
+                                            text="No Transactions Yet\n\nYour transaction history will appear here after you make your first payment.",
+                                            wraplength=500, justify="center")
+        self.no_transactions_label.pack(pady=50)
+    
+    def login(self):
+        # Get values from entries
+        username = self.username_entry.get().strip()
+        cnic = self.cnic_entry.get().strip()
+        
+        try:
+            balance = float(self.balance_entry.get().strip())
+        except ValueError:
+            self.login_error_label.config(text="Balance must be a valid number.")
+            return
+        
+        # Validate inputs
+        if not username:
+            self.login_error_label.config(text="Please enter your name.")
+            return
+        
+        if not self.validate_cnic(cnic):
+            self.login_error_label.config(text="CNIC must be in the exact format: 00000-0000000-0")
+            return
+        
+        # Set user data
+        self.user_logged_in = True
+        self.username = username
+        self.user_cnic = cnic
+        self.balance = balance
+        
+        # Clear login form and rebuild sidebar
+        for widget in self.sidebar_top_frame.winfo_children():
+            widget.destroy()
+        
+        self.setup_sidebar()
+        messagebox.showinfo("Login Successful", f"Welcome, {username}!")
+    
+    def logout(self):
+        # Reset all user data
+        self.user_logged_in = False
+        self.username = ""
+        self.user_cnic = ""
+        self.balance = 0.0
+        self.qr_result = None
+        self.scanning = False
+        self.payment_confirmed = False
+        self.payment_amount = 0.0
+        self.payment_recipient = ""
+        self.payment_cnic = ""
+        self.transaction_history = []
+        self.show_my_qr = False
+        self.scan_state = "idle"
+        self.parsed_payment_data = None
+        self.live_scanning_active = False
+        
+        # Stop camera if active
+        if self.camera_active:
+            self.stop_camera()
+        
+        # Clear sidebar and rebuild
+        for widget in self.sidebar_top_frame.winfo_children():
+            widget.destroy()
+        
+        self.setup_sidebar()
+        
+        # Reset tab content
+        self.setup_my_qr_tab()
+        self.setup_generate_qr_tab()
+        self.setup_scan_pay_tab()
+        self.setup_transaction_history_tab()
+    
+    def validate_cnic(self, cnic):
+        # Pattern for CNIC: 00000-0000000-0 (exactly this format)
+        pattern = r'^\d{5}-\d{7}-\d{1}$'
+        return bool(re.match(pattern, cnic))
+    
+    def generate_qr_code(self, data, box_size=10):
+        # Convert data to JSON string
+        json_data = json.dumps(data)
+        
+        # Create QR code instance
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_H,
+            box_size=box_size,  # Adjustable box size parameter
+            border=4,
+        )
+        
+        # Add data to QR code
+        qr.add_data(json_data)
+        qr.make(fit=True)
+        
+        # Create an image from the QR Code
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        # Convert to RGB if not already
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        return img
+    
+    def show_my_qr_code(self):
+        if not self.user_logged_in:
+            messagebox.showwarning("Not Logged In", "Please log in first to generate your QR code.")
+            return
+        
+        # Clear the display frame
+        for widget in self.qr_display_frame.winfo_children():
+            widget.destroy()
+        
+        # Create user data dictionary
+        user_data = {
+            "type": "user_info",
+            "name": self.username,
+            "cnic": self.user_cnic,
+            "balance": self.balance
         }
         
-        st.session_state.transaction_history.append(transaction)
+        # Generate QR code
+        qr_img = self.generate_qr_code(user_data, box_size=10)
         
-        return True, f"Payment of PKR {amount:.2f} to {recipient} was successful."
-    else:
-        return False, f"Insufficient funds. Your balance is PKR {st.session_state.balance:.2f}."
-
-# Function to parse QR data
-def parse_qr_data(qr_data):
-    try:
-        payment_data = json.loads(qr_data)
-        if 'type' in payment_data and payment_data['type'] == 'payment':
-            return payment_data, True, "Valid payment QR code detected."
+        # Convert PIL image to Tkinter PhotoImage
+        tk_img = ImageTk.PhotoImage(qr_img)
+        
+        # Display QR code
+        qr_label = ttk.Label(self.qr_display_frame, image=tk_img)
+        qr_label.image = tk_img  # Keep a reference to prevent garbage collection
+        qr_label.pack(pady=10)
+        
+        # Display QR code information
+        info_frame = ttk.LabelFrame(self.qr_display_frame, text="Your QR Code Information")
+        info_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        ttk.Label(info_frame, text=f"Name: {self.username}").pack(anchor="w", padx=10, pady=2)
+        ttk.Label(info_frame, text=f"CNIC: {self.user_cnic}").pack(anchor="w", padx=10, pady=2)
+        ttk.Label(info_frame, text=f"Balance: PKR {self.balance:.2f}").pack(anchor="w", padx=10, pady=2)
+        ttk.Label(info_frame, text="You can save the QR code by right-clicking on the image.", 
+                 font=("Arial", 9, "italic")).pack(anchor="w", padx=10, pady=(10, 5))
+    
+    def generate_payment_qr(self):
+        if not self.user_logged_in:
+            messagebox.showwarning("Not Logged In", "Please log in first to generate a payment QR code.")
+            return
+        
+        try:
+            amount = float(self.payment_amount_entry.get().strip())
+            if amount <= 0:
+                raise ValueError("Amount must be greater than zero.")
+        except ValueError as e:
+            messagebox.showerror("Invalid Amount", str(e))
+            return
+        
+        # Clear the display frame
+        for widget in self.payment_qr_display_frame.winfo_children():
+            widget.destroy()
+        
+        # Create payment data dictionary
+        payment_data = {
+            "type": "payment",
+            "sender": self.username,
+            "sender_cnic": self.user_cnic,
+            "amount": amount
+        }
+        
+        # Generate QR code
+        qr_img = self.generate_qr_code(payment_data, box_size=10)
+        
+        # Convert PIL image to Tkinter PhotoImage
+        tk_img = ImageTk.PhotoImage(qr_img)
+        
+        # Display QR code
+        qr_label = ttk.Label(self.payment_qr_display_frame, image=tk_img)
+        qr_label.image = tk_img  # Keep a reference to prevent garbage collection
+        qr_label.pack(pady=10)
+        
+        # Display payment information
+        info_frame = ttk.LabelFrame(self.payment_qr_display_frame, text="Payment QR Code Information")
+        info_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        ttk.Label(info_frame, text=f"Sender: {self.username}").pack(anchor="w", padx=10, pady=2)
+        ttk.Label(info_frame, text=f"CNIC: {self.user_cnic}").pack(anchor="w", padx=10, pady=2)
+        ttk.Label(info_frame, text=f"Amount: PKR {amount:.2f}").pack(anchor="w", padx=10, pady=2)
+        ttk.Label(info_frame, text="You can save the QR code by right-clicking on the image.", 
+                 font=("Arial", 9, "italic")).pack(anchor="w", padx=10, pady=(10, 5))
+    
+    def start_camera(self):
+        if not self.user_logged_in:
+            messagebox.showwarning("Not Logged In", "Please log in first to use the camera.")
+            return
+        
+        # Initialize camera
+        self.cap = cv2.VideoCapture(0)
+        
+        if not self.cap.isOpened():
+            messagebox.showerror("Camera Error", "Could not open camera. Please check your camera connection.")
+            return
+        
+        # Update UI
+        self.camera_active = True
+        self.start_camera_button.config(state=tk.DISABLED)
+        self.stop_camera_button.config(state=tk.NORMAL)
+        self.camera_status_label.config(text="Camera Active - Scanning for QR codes...")
+        
+        # Clear payment details
+        for widget in self.live_payment_details_frame.winfo_children():
+            widget.destroy()
+        
+        scanning_label = ttk.Label(self.live_payment_details_frame, 
+                                 text="Point your camera at a QR code to scan it.",
+                                 wraplength=300, justify="center")
+        scanning_label.pack(pady=20)
+        
+        # Start camera thread
+        self.camera_thread = Thread(target=self.camera_loop)
+        self.camera_thread.daemon = True
+        self.camera_thread.start()
+    
+    def camera_loop(self):
+        # Initialize the QR code detector
+        qr_detector = cv2.QRCodeDetector()
+        
+        while self.camera_active:
+            ret, frame = self.cap.read()
+            
+            if not ret:
+                self.camera_status_label.config(text="Error: Failed to capture frame.")
+                break
+            
+            # Create a copy of the frame for display
+            display_frame = frame.copy()
+            qr_value = None
+            
+            # Try to detect and decode QR codes in the frame
+            try:
+                # For OpenCV 4.5.4 and above, use detectAndDecodeMulti
+                ret_qr, decoded_info, points, _ = qr_detector.detectAndDecodeMulti(frame)
+                
+                # If QR codes are detected
+                if ret_qr:
+                    for s, p in zip(decoded_info, points):
+                        # If the QR code contains data
+                        if s:
+                            qr_value = s  # Assign the QR code value to the variable
+                            color = (0, 255, 0)  # Green color for successful decode
+                            
+                            # Draw a polygon around the QR code
+                            display_frame = cv2.polylines(display_frame, [p.astype(int)], True, color, 8)
+                            
+                            # Display the decoded text on the frame
+                            display_frame = cv2.putText(display_frame, "QR Code Detected", p[0].astype(int), 
+                                              cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                            break
+            except Exception as e:
+                # For older versions of OpenCV, use detectAndDecode
+                try:
+                    data, bbox, _ = qr_detector.detectAndDecode(frame)
+                    
+                    # If a QR code is detected and contains data
+                    if bbox is not None and data:
+                        qr_value = data  # Assign the QR code value to the variable
+                        
+                        # Draw a polygon around the QR code
+                        bbox = bbox.astype(int)
+                        display_frame = cv2.polylines(display_frame, [bbox], True, (0, 255, 0), 8)
+                        
+                        # Display the decoded text on the frame
+                        display_frame = cv2.putText(display_frame, "QR Code Detected", (bbox[0][0], bbox[0][1] - 10), 
+                                          cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                except Exception as e:
+                    # Just continue if there's an error
+                    pass
+            
+            # Add status text to the frame
+            status_text = "QR Code Scanner - Scanning..."
+            cv2.putText(display_frame, status_text, (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+            
+            # Convert BGR to RGB for Tkinter display
+            rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+            img = Image.fromarray(rgb_frame)
+            img = ImageTk.PhotoImage(image=img)
+            
+            # Update the video label
+            self.video_label.config(image=img)
+            self.video_label.image = img  # Keep a reference to prevent garbage collection
+            
+            # If QR code detected, process it
+            if qr_value:
+                self.process_detected_qr(qr_value)
+                break
+            
+            # Add a small delay to reduce CPU usage
+            time.sleep(0.03)
+    
+    def process_detected_qr(self, qr_data):
+        # Stop the camera
+        self.stop_camera()
+        
+        # Parse the QR data
+        try:
+            payment_data, is_valid, message = self.parse_qr_data(qr_data)
+            
+            if is_valid:
+                self.qr_result = qr_data
+                self.parsed_payment_data = payment_data
+                self.scan_state = "detected"
+                
+                # Update UI with payment details
+                self.show_payment_details(payment_data, "live")
+            else:
+                messagebox.showerror("Invalid QR Code", message)
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not parse QR code data: {str(e)}")
+    
+    def show_payment_details(self, payment_data, source):
+        # Clear the payment details frame
+        if source == "live":
+            for widget in self.live_payment_details_frame.winfo_children():
+                widget.destroy()
+            
+            details_frame = self.live_payment_details_frame
+        else:  # upload
+            for widget in self.upload_payment_details_frame.winfo_children():
+                widget.destroy()
+            
+            details_frame = self.upload_payment_details_frame
+        
+        # Display payment details
+        ttk.Label(details_frame, text="Payment Detected", font=("Arial", 12, "bold")).pack(pady=(10, 5))
+        ttk.Label(details_frame, text=f"Recipient: {payment_data['sender']}").pack(anchor="w", padx=10, pady=2)
+        ttk.Label(details_frame, text=f"CNIC: {payment_data['sender_cnic']}").pack(anchor="w", padx=10, pady=2)
+        ttk.Label(details_frame, text=f"Amount: PKR {payment_data['amount']:.2f}").pack(anchor="w", padx=10, pady=2)
+        ttk.Label(details_frame, text=f"Your Balance: PKR {self.balance:.2f}").pack(anchor="w", padx=10, pady=2)
+        
+        # Payment buttons
+        buttons_frame = ttk.Frame(details_frame)
+        buttons_frame.pack(fill=tk.X, pady=10)
+        
+        if self.balance >= payment_data['amount']:
+            pay_button = ttk.Button(buttons_frame, text="💰 Pay Now", 
+                                 command=lambda: self.process_payment(payment_data, source))
+            pay_button.pack(side=tk.LEFT, padx=5)
         else:
-            return None, False, "Invalid QR code: Not a payment request."
-    except Exception as e:
-        return None, False, "Error: Could not parse QR code data."
-
-# Function to detect QR code continuously
-def detect_qr_code_continuous():
-    # Initialize the QR code detector
-    qr_detector = cv2.QRCodeDetector()
-    
-    # Initialize the camera (0 is usually the default camera)
-    camera_id = 0
-    cap = cv2.VideoCapture(camera_id)
-    
-    # Check if the camera opened successfully
-    if not cap.isOpened():
-        st.error("Error: Could not open camera.")
-        return None
-    
-    st.info("Camera opened successfully. Scanning for QR codes...")
-    
-    # Create a placeholder for the video feed
-    video_placeholder = st.empty()
-    
-    # Variable to store the QR code value
-    qr_value = None
-    
-    # Create a status placeholder
-    status_placeholder = st.empty()
-    status_placeholder.info("Scanning for QR codes...")
-    
-    while True:
-        # Read a frame from the camera
-        ret, frame = cap.read()
+            ttk.Label(buttons_frame, text="💸 Insufficient funds", foreground="red").pack(side=tk.LEFT, padx=5)
         
-        if not ret:
-            st.error("Error: Failed to capture frame.")
-            break
+        cancel_button = ttk.Button(buttons_frame, text="🚫 Cancel", 
+                                command=lambda: self.cancel_payment(source))
+        cancel_button.pack(side=tk.LEFT, padx=5)
+    
+    def process_payment(self, payment_data, source):
+        if self.balance >= payment_data['amount']:
+            # Update user balance
+            self.balance -= payment_data['amount']
+            
+            # Record the transaction
+            transaction = {
+                "date": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "type": "payment",
+                "amount": payment_data['amount'],
+                "recipient": payment_data['sender'],
+                "recipient_cnic": payment_data['sender_cnic'],
+                "balance_after": self.balance
+            }
+            
+            self.transaction_history.append(transaction)
+            
+            # Update UI
+            self.scan_state = "confirmed"
+            self.show_payment_success(transaction, source)
+            
+            # Update sidebar balance display
+            self.setup_sidebar()
+            
+            # Update transaction history tab
+            self.update_transaction_history()
+            
+            return True, f"Payment of PKR {payment_data['amount']:.2f} to {payment_data['sender']} was successful."
+        else:
+            messagebox.showerror("Payment Failed", f"Insufficient funds. Your balance is PKR {self.balance:.2f}.")
+            return False, f"Insufficient funds. Your balance is PKR {self.balance:.2f}."
+    
+    def show_payment_success(self, transaction, source):
+        # Clear the payment details frame
+        if source == "live":
+            for widget in self.live_payment_details_frame.winfo_children():
+                widget.destroy()
+            
+            details_frame = self.live_payment_details_frame
+        else:  # upload
+            for widget in self.upload_payment_details_frame.winfo_children():
+                widget.destroy()
+            
+            details_frame = self.upload_payment_details_frame
+        
+        # Display success message
+        success_frame = ttk.LabelFrame(details_frame, text="Payment Successful!")
+        success_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        ttk.Label(success_frame, text=f"Amount Paid: PKR {transaction['amount']:.2f}").pack(anchor="w", padx=10, pady=2)
+        ttk.Label(success_frame, text=f"Recipient: {transaction['recipient']}").pack(anchor="w", padx=10, pady=2)
+        ttk.Label(success_frame, text=f"New Balance: PKR {transaction['balance_after']:.2f}").pack(anchor="w", padx=10, pady=2)
+        ttk.Label(success_frame, text=f"Transaction Time: {transaction['date']}").pack(anchor="w", padx=10, pady=2)
+        
+        # Buttons
+        buttons_frame = ttk.Frame(details_frame)
+        buttons_frame.pack(fill=tk.X, pady=10)
+        
+        scan_another_button = ttk.Button(buttons_frame, text="🔄 Scan Another QR Code", 
+                                      command=lambda: self.reset_scan_state(source))
+        scan_another_button.pack(side=tk.LEFT, padx=5)
+        
+        view_transactions_button = ttk.Button(buttons_frame, text="📊 View Transactions", 
+                                           command=self.show_transaction_tab)
+        view_transactions_button.pack(side=tk.LEFT, padx=5)
+    
+    def reset_scan_state(self, source):
+        self.scan_state = "idle"
+        self.qr_result = None
+        self.parsed_payment_data = None
+        
+        # Reset UI
+        if source == "live":
+            for widget in self.live_payment_details_frame.winfo_children():
+                widget.destroy()
+            
+            self.live_payment_instructions = ttk.Label(self.live_payment_details_frame, 
+                                                    text="Start the camera and point it at a QR code to scan.",
+                                                    wraplength=300, justify="center")
+            self.live_payment_instructions.pack(pady=50)
+        else:  # upload
+            for widget in self.upload_payment_details_frame.winfo_children():
+                widget.destroy()
+            
+            self.upload_payment_instructions = ttk.Label(self.upload_payment_details_frame, 
+                                                      text="Upload an image containing a QR code and click 'Scan Uploaded Image'.",
+                                                      wraplength=300, justify="center")
+            self.upload_payment_instructions.pack(pady=50)
+            
+            # Reset uploaded image
+            self.uploaded_image_label.config(image='')
+            self.scan_uploaded_button.config(state=tk.DISABLED)
+    
+    def cancel_payment(self, source):
+        self.reset_scan_state(source)
+    
+    def show_transaction_tab(self):
+        # Switch to transaction history tab
+        self.notebook.select(self.tab4)
+    
+    def stop_camera(self):
+        # Stop the camera
+        self.camera_active = False
+        
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
+        
+        # Update UI
+        self.start_camera_button.config(state=tk.NORMAL)
+        self.stop_camera_button.config(state=tk.DISABLED)
+        self.camera_status_label.config(text="Camera Inactive")
+        
+        # Clear video display
+        self.video_label.config(image='')
+    
+    def upload_image(self):
+        if not self.user_logged_in:
+            messagebox.showwarning("Not Logged In", "Please log in first to upload an image.")
+            return
+        
+        # Open file dialog
+        file_path = filedialog.askopenfilename(
+            title="Select QR Code Image",
+            filetypes=[("Image files", "*.jpg *.jpeg *.png *.bmp *.tiff")]
+        )
+        
+        if not file_path:  # User cancelled
+            return
+        
+        try:
+            # Open and display the image
+            image = Image.open(file_path)
+            
+            # Resize image for display if needed
+            max_size = (300, 300)
+            image.thumbnail(max_size, Image.LANCZOS)
+            
+            # Convert to Tkinter PhotoImage
+            tk_img = ImageTk.PhotoImage(image)
+            
+            # Display image
+            self.uploaded_image_label.config(image=tk_img)
+            self.uploaded_image_label.image = tk_img  # Keep a reference
+            
+            # Store original image for processing
+            self.uploaded_image = Image.open(file_path)
+            
+            # Enable scan button
+            self.scan_uploaded_button.config(state=tk.NORMAL)
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open image: {str(e)}")
+    
+    def scan_uploaded_image(self):
+        if not hasattr(self, 'uploaded_image'):
+            messagebox.showerror("Error", "No image uploaded.")
+            return
+        
+        # Convert PIL image to numpy array for OpenCV
+        img_array = np.array(self.uploaded_image)
+        
+        # Convert RGB to BGR for OpenCV if needed
+        if len(img_array.shape) == 3 and img_array.shape[2] == 3:
+            img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+        
+        # Process image
+        _, qr_value = self.detect_qr_code(img_array)
+        
+        if qr_value:
+            # Parse the QR data
+            payment_data, is_valid, message = self.parse_qr_data(qr_value)
+            
+            if is_valid:
+                self.qr_result = qr_value
+                self.parsed_payment_data = payment_data
+                self.scan_state = "detected"
+                
+                # Update UI with payment details
+                self.show_payment_details(payment_data, "upload")
+            else:
+                messagebox.showerror("Invalid QR Code", message)
+        else:
+            messagebox.showerror("No QR Code Detected", "No QR code was found in the uploaded image.")
+    
+    def detect_qr_code(self, frame):
+        # Initialize the QR code detector
+        qr_detector = cv2.QRCodeDetector()
         
         # Create a copy of the frame for display
         display_frame = frame.copy()
+        qr_value = None
         
-        # Try to detect and decode QR codes in the frame
         try:
             # For OpenCV 4.5.4 and above, use detectAndDecodeMulti
             ret_qr, decoded_info, points, _ = qr_detector.detectAndDecodeMulti(frame)
@@ -324,23 +903,9 @@ def detect_qr_code_continuous():
                         display_frame = cv2.polylines(display_frame, [p.astype(int)], True, color, 8)
                         
                         # Display the decoded text on the frame
-                        display_frame = cv2.putText(display_frame, s, p[0].astype(int), 
+                        display_frame = cv2.putText(display_frame, "QR Code Detected", p[0].astype(int), 
                                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-                        
-                        # Convert BGR to RGB for Streamlit display
-                        rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
-                        
-                        # Show the final frame with the detected QR code
-                        video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
-                        status_placeholder.success(f"QR Code detected: {s}")
-                        
-                        # Break the loop after detecting a QR code
                         break
-                
-                # If we found a valid QR code, break the main loop
-                if qr_value:
-                    break
-                    
         except Exception as e:
             # For older versions of OpenCV, use detectAndDecode
             try:
@@ -355,504 +920,67 @@ def detect_qr_code_continuous():
                     display_frame = cv2.polylines(display_frame, [bbox], True, (0, 255, 0), 8)
                     
                     # Display the decoded text on the frame
-                    display_frame = cv2.putText(display_frame, data, (bbox[0][0], bbox[0][1] - 10),
+                    display_frame = cv2.putText(display_frame, "QR Code Detected", (bbox[0][0], bbox[0][1] - 10), 
                                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-                    
-                    # Convert BGR to RGB for Streamlit display
-                    rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
-                    
-                    # Show the final frame with the detected QR code
-                    video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
-                    status_placeholder.success(f"QR Code detected: {data}")
-                    
-                    # Break the loop after detecting a QR code
-                    break
             except Exception as e:
                 # Just continue if there's an error
                 pass
         
-        # Add status text to the frame
-        status_text = "QR Code Scanner - Scanning..."
-        cv2.putText(display_frame, status_text, (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-        
-        # Convert BGR to RGB for Streamlit display
-        rgb_frame = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
-        
-        # Display the frame in Streamlit
-        video_placeholder.image(rgb_frame, channels="RGB", use_container_width=True)
-        
-        # Add a small delay to reduce CPU usage
-        time.sleep(0.03)
+        return display_frame, qr_value
     
-    # Release the camera
-    cap.release()
-    
-    return qr_value
-
-# Function to handle real-time QR code scanning using the local function
-def real_time_qr_scan():
-    # This function will use the detect_qr_code_continuous function defined in this file
-    qr_data = detect_qr_code_continuous()
-    return qr_data
-
-# Sidebar with user information and options
-with st.sidebar:
-    if not st.session_state.user_logged_in:
-        st.markdown('<p class="sub-header">Create Account / Login</p>', unsafe_allow_html=True)
-        
-        # Account creation form
-        with st.form("account_form"):
-            username = st.text_input("Your Name")
-            user_cnic = st.text_input("Your CNIC", placeholder="00000-0000000-0", help="Format must be exactly: 00000-0000000-0")
-            initial_balance = st.number_input("Initial Balance (PKR)", min_value=0.0, value=5000.0, format="%.2f")
-            
-            submitted = st.form_submit_button("Create Account & Login")
-            
-            if submitted:
-                if not username:
-                    st.error("Please enter your name.")
-                elif not validate_cnic(user_cnic):
-                    st.error("CNIC must be in the exact format: 00000-0000000-0")
-                else:
-                    st.session_state.user_logged_in = True
-                    st.session_state.username = username
-                    st.session_state.user_cnic = user_cnic
-                    st.session_state.balance = initial_balance
-                    st.success(f"Welcome, {username}!")
-                    st.rerun()
-    else:
-        st.markdown('<p class="sub-header">User Information</p>', unsafe_allow_html=True)
-        st.markdown(f"**Name:** {st.session_state.username}")
-        st.markdown(f"**CNIC:** {st.session_state.user_cnic}")
-        st.markdown(f'<div class="balance-display">Balance: PKR {st.session_state.balance:.2f}</div>', unsafe_allow_html=True)
-        
-        if st.button("Logout"):
-            # Reset all session state variables
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
-    
-    st.markdown("---")
-    st.markdown("### About")
-    st.markdown("""
-    This app allows you to:
-    - Generate QR codes for payments
-    - Scan QR codes to make payments
-    - Track your account balance
-    - View transaction history
-    """)
-
-# Run the continuous QR code detection only when explicitly called, not on app startup
-if __name__ == "__main__" and False:  # Disabled automatic execution
-    print("Starting continuous QR code detection...")
-    result = detect_qr_code_continuous()
-    
-    if result:
-        print(f"\nLast detected QR Code Value: {result}")
-    else:
-        print("\nNo QR code was detected or the camera was closed before detection.")
-
-# Main content
-if not st.session_state.user_logged_in:
-    st.markdown('<div class="info-box"><h3>Please create an account to use the app</h3></div>', unsafe_allow_html=True)
-else:
-    # Create tabs for different functionalities
-    tab1, tab2, tab3, tab4 = st.tabs(["My QR Code", "Generate Payment QR", "Scan & Pay", "Transaction History"])
-    
-    # Tab 1: My QR Code
-    with tab1:
-        st.markdown('<div class="tab-content">', unsafe_allow_html=True)
-        st.markdown('<p class="sub-header">Your Personal QR Code</p>', unsafe_allow_html=True)
-        
-        # Create user data dictionary
-        user_data = {
-            "type": "user_info",
-            "name": st.session_state.username,
-            "cnic": st.session_state.user_cnic,
-            "balance": st.session_state.balance
-        }
-        
-        # Button to show QR code
-        if st.button("Show My QR Code"):
-            st.session_state.show_my_qr = True
-        
-        # Display QR code if button was clicked
-        if st.session_state.show_my_qr:
-            # Generate QR code with smaller box size for better display
-            qr_img = generate_qr_code(user_data, box_size=6)
-            
-            # Convert PIL image to bytes for Streamlit
-            buf = io.BytesIO()
-            qr_img.save(buf, format="PNG")
-            byte_im = buf.getvalue()
-            
-            # Display QR code with controlled width
-            st.markdown('<div class="qr-container"></div>', unsafe_allow_html=True)
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                st.image(byte_im, caption=f"QR Code for {st.session_state.username}", width=300)
-            
-            # Display QR code information
-            st.markdown(f'''
-            <div class="success-box">
-                <h3>Your QR Code Information</h3>
-                <ul>
-                    <li><strong>Name:</strong> {st.session_state.username}</li>
-                    <li><strong>CNIC:</strong> {st.session_state.user_cnic}</li>
-                    <li><strong>Balance:</strong> PKR {st.session_state.balance:.2f}</li>
-                </ul>
-                <p>You can download the QR code by right-clicking on the image and selecting "Save Image As..."</p>
-            </div>
-            ''', unsafe_allow_html=True)
-        else:
-            st.markdown('''
-            <div class="info-box">
-                <h3>Instructions</h3>
-                <p>Click the "Show My QR Code" button to generate a QR code containing your account information.</p>
-                <p>This QR code can be scanned by others to view your account details.</p>
-            </div>
-            ''', unsafe_allow_html=True)
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Tab 2: Generate Payment QR
-    with tab2:
-        st.markdown('<div class="tab-content">', unsafe_allow_html=True)
-        st.markdown('<p class="sub-header">Create Payment QR Code</p>', unsafe_allow_html=True)
-        
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            # Payment information form
-            with st.form("payment_info_form"):
-                # Automatically use the logged-in user's information
-                st.markdown(f"**Sender:** {st.session_state.username} (You)")
-                amount = st.number_input("Amount (PKR)", min_value=1.0, format="%.2f")
-                
-                submitted = st.form_submit_button("Generate Payment QR Code")
-        
-        with col2:
-            st.markdown('<p class="sub-header">Generated QR Code</p>', unsafe_allow_html=True)
-            qr_placeholder = st.empty()
-        
-        # Process form submission
-        if submitted:
-            # Create data dictionary with the logged-in user's information
-            payment_data = {
-                "type": "payment",
-                "sender": st.session_state.username,
-                "sender_cnic": st.session_state.user_cnic,
-                "amount": amount
-            }
-            
-            # Generate QR code with smaller box size
-            qr_img = generate_qr_code(payment_data, box_size=6)
-            
-            # Convert PIL image to bytes for Streamlit
-            buf = io.BytesIO()
-            qr_img.save(buf, format="PNG")
-            byte_im = buf.getvalue()
-            
-            # Display QR code with controlled width
-            qr_placeholder.markdown('<div class="qr-container"></div>', unsafe_allow_html=True)
-            qr_placeholder.image(byte_im, caption=f"Payment QR Code for PKR {amount:.2f}", width=300)
-            
-            # Display success message with data preview
-            st.markdown(f'''
-            <div class="success-box">
-                <h3>Payment QR Code Generated Successfully!</h3>
-                <p>The QR code contains the following payment information:</p>
-                <ul>
-                    <li><strong>Sender:</strong> {st.session_state.username}</li>
-                    <li><strong>CNIC:</strong> {st.session_state.user_cnic}</li>
-                    <li><strong>Amount:</strong> PKR {amount:.2f}</li>
-                </ul>
-                <p>You can download the QR code by right-clicking on the image and selecting "Save Image As..."</p>
-            </div>
-            ''', unsafe_allow_html=True)
-        
-        # Display instructions if no QR code has been generated yet
-        if not submitted:
-            qr_placeholder.markdown('''
-            <div class="info-box">
-                <h3>Instructions</h3>
-                <p>Enter the amount and click "Generate Payment QR Code" to create a QR code for payment.</p>
-                <p>The generated QR code can be scanned by another user to make a payment to you.</p>
-            </div>
-            ''', unsafe_allow_html=True)
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Tab 3: Scan & Pay
-    with tab3:
-        st.markdown('<div class="tab-content">', unsafe_allow_html=True)
-        st.markdown('<p class="sub-header">Scan & Pay</p>', unsafe_allow_html=True)
-        
-        # Initialize camera_active state if not exists
-        if 'camera_active' not in st.session_state:
-            st.session_state.camera_active = False
-        
-        scan_tab1, scan_tab2 = st.tabs(["Live Camera", "Upload Image"])
-        
-        # Live Camera Tab
-        with scan_tab1:
-            col1, col2 = st.columns([3, 2])
-            
-            with col1:
-                # Camera control button
-                if not st.session_state.camera_active:
-                    if st.button("🎥 Start Camera", key="start_camera"):
-                        st.session_state.camera_active = True
-                        st.rerun()
-                else:
-                    if st.button("⏹️ Stop Camera", key="stop_camera"):
-                        st.session_state.camera_active = False
-                        st.rerun()
-                
-                # Real-time QR scanning
-                if st.session_state.camera_active:
-                    st.markdown("### 📷 Real-time QR Scanner")
-                    st.markdown("Point your camera at a QR code")
-                    
-                    # Only call real_time_qr_scan when camera is active
-                    try:
-                        qr_data = real_time_qr_scan()
-                        
-                        if qr_data:
-                            st.success("✅ QR Code detected!")
-                            # Automatically deactivate camera after detection
-                            st.session_state.camera_active = False
-                            
-                            # Parse the QR data
-                            try:
-                                payment_data = json.loads(qr_data)
-                                if 'type' in payment_data and payment_data['type'] == 'payment':
-                                    st.session_state.qr_result = qr_data
-                                    st.session_state.parsed_payment_data = payment_data
-                                    st.session_state.scan_state = "detected"
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Invalid QR code: Not a payment request.")
-                            except Exception as e:
-                                st.error(f"❌ Error: Could not parse QR code data. {str(e)}")
-                    except Exception as e:
-                        st.error(f"❌ Error with camera: {str(e)}")
-                        st.session_state.camera_active = False
-                else:
-                    st.markdown('''
-                    <div class="info-box">
-                        <h4>📱 Camera Inactive</h4>
-                        <p>Click the "Start Camera" button to begin real-time scanning.</p>
-                    </div>
-                    ''', unsafe_allow_html=True)
-            
-            with col2:
-                # Payment details for live scanning
-                if st.session_state.scan_state == "detected" and st.session_state.parsed_payment_data:
-                    payment_data = st.session_state.parsed_payment_data
-                    
-                    st.markdown(f'''
-                    <div class="result-text">
-                        <h4>🎯 Payment Detected</h4>
-                        <p><strong>Recipient:</strong> {payment_data['sender']}</p>
-                        <p><strong>Amount:</strong> PKR {payment_data['amount']:.2f}</p>
-                        <p><strong>Your Balance:</strong> PKR {st.session_state.balance:.2f}</p>
-                    </div>
-                    ''', unsafe_allow_html=True)
-                    
-                    # Quick payment buttons
-                    if st.session_state.balance >= payment_data['amount']:
-                        if st.button("💰 Pay Now", type="primary", key="quick_pay"):
-                            success, message = process_payment(
-                                payment_data['amount'],
-                                payment_data['sender'],
-                                payment_data['sender_cnic']
-                            )
-                            if success:
-                                st.session_state.scan_state = "confirmed"
-                                st.balloons()  # Celebration effect
-                                st.rerun()
-                    else:
-                        st.error("💸 Insufficient funds")
-                    
-                    if st.button("🚫 Cancel", key="quick_cancel"):
-                        st.session_state.scan_state = "idle"
-                        st.session_state.parsed_payment_data = None
-                        st.rerun()
-                elif st.session_state.camera_active:
-                    st.markdown('''
-                    <div class="info-box">
-                        <h4>📱 Live Scanner Active</h4>
-                        <p>Point your camera at a QR code to scan it automatically.</p>
-                        <p><strong>Tips:</strong></p>
-                        <ul>
-                            <li>🔆 Ensure good lighting</li>
-                            <li>📐 Keep QR code straight</li>
-                            <li>📏 Maintain proper distance</li>
-                            <li>✋ Hold steady for best results</li>
-                        </ul>
-                    </div>
-                    ''', unsafe_allow_html=True)
-        
-        # Upload Image Tab
-        with scan_tab2:
-            col1, col2 = st.columns([3, 2])
-            
-            with col1:
-                st.markdown("### Upload QR Code Image")
-                uploaded_file = st.file_uploader(
-                    "Choose a QR code image", 
-                    type=['jpg', 'jpeg', 'png', 'bmp', 'tiff'], 
-                    key="qr_upload_main"
-                )
-            
-            if uploaded_file is not None:
-                # Process uploaded image
-                image = Image.open(uploaded_file)
-                st.image(image, caption="Uploaded Image", width=300)
-                
-                # Convert to numpy array
-                img_array = np.array(image)
-                
-                # Convert RGB to BGR for OpenCV
-                if len(img_array.shape) == 3 and img_array.shape[2] == 3:
-                    img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-                
-                # Process button
-                if st.button("🔍 Scan Uploaded Image", type="primary"):
-                    with st.spinner("Processing image..."):
-                        display_frame, qr_value = detect_qr_code(img_array)
-                        
-                        if qr_value:
-                            st.success("✅ QR Code found in image!")
-                            
-                            # Parse the QR data
-                            parsed_data, is_valid, message = parse_qr_data(qr_value)
-                            
-                            if is_valid:
-                                st.session_state.qr_result = qr_value
-                                st.session_state.parsed_payment_data = parsed_data
-                                st.session_state.scan_state = "detected"
-                                st.rerun()
-                            else:
-                                st.error(f"❌ {message}")
-                        else:
-                            st.error("❌ No QR code detected in the uploaded image.")
-        
-        with col2:
-            # Payment details for uploaded image
-            if st.session_state.scan_state == "detected" and st.session_state.parsed_payment_data:
-                payment_data = st.session_state.parsed_payment_data
-                
-                st.markdown(f'''
-                <div class="result-text">
-                    <h4>📋 Payment Details</h4>
-                    <p><strong>Recipient:</strong> {payment_data['sender']}</p>
-                    <p><strong>CNIC:</strong> {payment_data['sender_cnic']}</p>
-                    <p><strong>Amount:</strong> PKR {payment_data['amount']:.2f}</p>
-                    <p><strong>Your Balance:</strong> PKR {st.session_state.balance:.2f}</p>
-                </div>
-                ''', unsafe_allow_html=True)
-                
-                # Payment confirmation
-                if st.session_state.balance >= payment_data['amount']:
-                    if st.button("✅ Confirm Payment", type="primary", key="confirm_upload_payment"):
-                        success, message = process_payment(
-                            payment_data['amount'],
-                            payment_data['sender'],
-                            payment_data['sender_cnic']
-                        )
-                        if success:
-                            st.session_state.scan_state = "confirmed"
-                            st.success("🎉 Payment completed successfully!")
-                            st.rerun()
-                        else:
-                            st.error(message)
-                else:
-                    st.error(f"💸 Insufficient funds. Need PKR {payment_data['amount']:.2f}")
-                
-                if st.button("❌ Cancel Payment", key="cancel_upload_payment"):
-                    st.session_state.scan_state = "idle"
-                    st.session_state.parsed_payment_data = None
-                    st.rerun()
+    def parse_qr_data(self, qr_data):
+        try:
+            payment_data = json.loads(qr_data)
+            if 'type' in payment_data and payment_data['type'] == 'payment':
+                return payment_data, True, "Valid payment QR code detected."
             else:
-                st.markdown('''
-                <div class="info-box">
-                    <h4>📁 Upload Scanner</h4>
-                    <p>Upload an image containing a QR code to scan it.</p>
-                    <p><strong>Supported formats:</strong></p>
-                    <p>JPG, PNG, BMP, TIFF</p>
-                </div>
-                ''', unsafe_allow_html=True)
+                return None, False, "Invalid QR code: Not a payment request."
+        except Exception as e:
+            return None, False, f"Error: Could not parse QR code data. {str(e)}"
     
-    # Payment success display (shown in both tabs)
-    if st.session_state.scan_state == "confirmed":
-        st.markdown("---")
-        if st.session_state.transaction_history:
-            last_transaction = st.session_state.transaction_history[-1]
-            
-            st.markdown(f'''
-            <div class="success-box">
-                <h4>🎉 Payment Successful!</h4>
-                <p><strong>Amount Paid:</strong> PKR {last_transaction['amount']:.2f}</p>
-                <p><strong>Recipient:</strong> {last_transaction['recipient']}</p>
-                <p><strong>New Balance:</strong> PKR {last_transaction['balance_after']:.2f}</p>
-                <p><strong>Transaction Time:</strong> {last_transaction['date']}</p>
-            </div>
-            ''', unsafe_allow_html=True)
+    def update_transaction_history(self):
+        # Update balance display
+        self.transaction_balance_label.config(text=f"Current Balance: PKR {self.balance:.2f}")
         
-        col_reset1, col_reset2 = st.columns(2)
-        with col_reset1:
-            if st.button("🔄 Scan Another QR Code", key="scan_another_main"):
-                st.session_state.scan_state = "idle"
-                st.session_state.qr_result = None
-                st.session_state.parsed_payment_data = None
-                st.rerun()
+        # Clear transaction frame
+        for widget in self.scrollable_transaction_frame.winfo_children():
+            widget.destroy()
         
-        with col_reset2:
-            if st.button("📊 View Transactions", key="view_transactions"):
-                st.session_state.scan_state = "idle"
-                st.session_state.qr_result = None
-                st.session_state.parsed_payment_data = None
-                st.rerun()
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Tab 4: Transaction History
-    with tab4:
-        st.markdown('<div class="tab-content">', unsafe_allow_html=True)
-        st.markdown('<p class="sub-header">Transaction History</p>', unsafe_allow_html=True)
-            
-        if st.session_state.transaction_history:
-            st.markdown(f'<div class="balance-display">Current Balance: PKR {st.session_state.balance:.2f}</div>', unsafe_allow_html=True)
-            
-            # Display transactions
-            for i, transaction in enumerate(reversed(st.session_state.transaction_history)):
-                st.markdown(f'''
-                <div class="transaction-details">
-                    <h4>Transaction #{len(st.session_state.transaction_history) - i}</h4>
-                    <p><strong>Date:</strong> {transaction['date']}</p>
-                    <p><strong>Type:</strong> {transaction['type'].title()}</p>
-                    <p><strong>Amount:</strong> PKR {transaction['amount']:.2f}</p>
-                    <p><strong>Recipient:</strong> {transaction['recipient']}</p>
-                    <p><strong>Recipient CNIC:</strong> {transaction['recipient_cnic']}</p>
-                    <p><strong>Balance After:</strong> PKR {transaction['balance_after']:.2f}</p>
-                </div>
-                ''', unsafe_allow_html=True)
+        if self.transaction_history:
+            # Display transactions in reverse order (newest first)
+            for i, transaction in enumerate(reversed(self.transaction_history)):
+                transaction_frame = ttk.LabelFrame(
+                    self.scrollable_transaction_frame, 
+                    text=f"Transaction #{len(self.transaction_history) - i}"
+                )
+                transaction_frame.pack(fill=tk.X, padx=10, pady=5)
+                
+                ttk.Label(transaction_frame, text=f"Date: {transaction['date']}").pack(anchor="w", padx=10, pady=2)
+                ttk.Label(transaction_frame, text=f"Type: {transaction['type'].title()}").pack(anchor="w", padx=10, pady=2)
+                ttk.Label(transaction_frame, text=f"Amount: PKR {transaction['amount']:.2f}").pack(anchor="w", padx=10, pady=2)
+                ttk.Label(transaction_frame, text=f"Recipient: {transaction['recipient']}").pack(anchor="w", padx=10, pady=2)
+                ttk.Label(transaction_frame, text=f"Recipient CNIC: {transaction['recipient_cnic']}").pack(anchor="w", padx=10, pady=2)
+                ttk.Label(transaction_frame, text=f"Balance After: PKR {transaction['balance_after']:.2f}").pack(anchor="w", padx=10, pady=2)
         else:
-            st.markdown('''
-            <div class="info-box">
-                <h3>No Transactions Yet</h3>
-                <p>Your transaction history will appear here after you make your first payment.</p>
-            </div>
-            ''', unsafe_allow_html=True)
-            
-        st.markdown('</div>', unsafe_allow_html=True)
+            # Show no transactions message
+            self.no_transactions_label = ttk.Label(self.scrollable_transaction_frame, 
+                                                text="No Transactions Yet\n\nYour transaction history will appear here after you make your first payment.",
+                                                wraplength=500, justify="center")
+            self.no_transactions_label.pack(pady=50)
+    
+    def on_closing(self):
+        # Stop camera if active
+        if self.camera_active:
+            self.stop_camera()
+        
+        # Close the application
+        self.root.destroy()
 
-# Footer
-st.markdown("---")
-st.markdown(
-    "<p style='text-align: center; color: #666;'>© 2025 QR Payment System | Built with Streamlit</p>", 
-    unsafe_allow_html=True
-)
+# Main function to run the application
+def main():
+    root = tk.Tk()
+    app = QRPaymentApp(root)
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
